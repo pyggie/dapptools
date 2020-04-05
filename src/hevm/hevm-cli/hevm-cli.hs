@@ -47,7 +47,7 @@ import qualified EVM.Facts     as Facts
 import qualified EVM.Facts.Git as Git
 import qualified EVM.UnitTest  as EVM.UnitTest
 
---import Control.Concurrent.Async   (async, waitCatch)
+import Control.Concurrent.Async   (async, waitCatch)
 import Control.Exception          (evaluate)
 import qualified Control.Monad.Operational as Operational
 import qualified Control.Monad.State.Class as State
@@ -81,7 +81,7 @@ import qualified Data.Sequence          as Seq
 import qualified System.Timeout         as Timeout
 
 import qualified Paths_hevm      as Paths
---import qualified Text.Regex.TDFA as Regex
+import qualified Text.Regex.TDFA as Regex
 
 import Options.Generic as Options
 
@@ -322,16 +322,15 @@ dappTest opts _ solcFile = do
         error ("Failed to read Solidity JSON for `" ++ solcFile ++ "'")
 
 regexMatches :: Text -> Text -> Bool
-regexMatches x y = True
-  -- regexMatches regexSource =
-  -- let
-  --   compOpts =
-  --     Regex.defaultCompOpt { Regex.lastStarGreedy = True }
-  --   execOpts =
-  --     Regex.defaultExecOpt { Regex.captureGroups = False }
-  --   regex = Regex.makeRegexOpts compOpts execOpts (unpack regexSource)
-  -- in
-  --   Regex.matchTest regex . Seq.fromList . unpack
+  regexMatches regexSource =
+  let
+    compOpts =
+      Regex.defaultCompOpt { Regex.lastStarGreedy = True }
+    execOpts =
+      Regex.defaultExecOpt { Regex.captureGroups = False }
+    regex = Regex.makeRegexOpts compOpts execOpts (unpack regexSource)
+  in
+    Regex.matchTest regex . Seq.fromList . unpack
 
 assert :: Command Options.Unwrapped -> IO ()
 assert cmd = case parseSignature (funcSig cmd) of
@@ -554,33 +553,32 @@ launchTest execmode cmd = do
 
 #if MIN_VERSION_aeson(1, 0, 0)
 runVMTest :: Bool -> ExecMode -> Mode -> Maybe Int -> (String, VMTest.Case) -> IO Bool
-runVMTest = error "nononoo"
--- runVMTest diffmode execmode mode timelimit (name, x) = do
---   let vm0 = VMTest.vmForCase execmode x
---   putStr (name ++ " ")
---   hFlush stdout
---   result <- do
---     action <- async $
---       case mode of
---         Run ->
---           Timeout.timeout (1e6 * (fromMaybe 10 timelimit)) . evaluate $ do
---             execState (VMTest.interpret . void $ EVM.Stepper.execFully) vm0
---         Debug ->
---           Just <$> EVM.TTY.runFromVM vm0
---     waitCatch action
---   case result of
---     Right (Just vm1) -> do
---       ok <- VMTest.checkExpectation diffmode execmode x vm1
---       putStrLn (if ok then "ok" else "")
---       return ok
---     Right Nothing -> do
---       putStrLn "timeout"
---       return False
---     Left e -> do
---       putStrLn $ "error: " ++ if diffmode
---         then show e
---         else (head . lines . show) e
---       return False
+runVMTest diffmode execmode mode timelimit (name, x) = do
+  let vm0 = VMTest.vmForCase execmode x
+  putStr (name ++ " ")
+  hFlush stdout
+  result <- do
+    action <- async $
+      case mode of
+        Run ->
+          Timeout.timeout (1e6 * (fromMaybe 10 timelimit)) . evaluate $ do
+            execState (VMTest.interpret . void $ EVM.Stepper.execFully) vm0
+        Debug ->
+          Just <$> EVM.TTY.runFromVM vm0
+    waitCatch action
+  case result of
+    Right (Just vm1) -> do
+      ok <- VMTest.checkExpectation diffmode execmode x vm1
+      putStrLn (if ok then "ok" else "")
+      return ok
+    Right Nothing -> do
+      putStrLn "timeout"
+      return False
+    Left e -> do
+      putStrLn $ "error: " ++ if diffmode
+        then show e
+        else (head . lines . show) e
+      return False
 
 #endif
 
