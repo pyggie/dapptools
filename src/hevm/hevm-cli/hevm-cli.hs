@@ -322,7 +322,7 @@ dappTest opts _ solcFile = do
         error ("Failed to read Solidity JSON for `" ++ solcFile ++ "'")
 
 regexMatches :: Text -> Text -> Bool
-  regexMatches regexSource =
+regexMatches regexSource =
   let
     compOpts =
       Regex.defaultCompOpt { Regex.lastStarGreedy = True }
