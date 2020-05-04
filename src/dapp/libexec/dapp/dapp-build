@@ -37,7 +37,21 @@ info() {
 }
 
 IFS=" " read -r -a opts <<<"$SOLC_FLAGS"
-json_opts=--combined-json=abi,bin,bin-runtime,srcmap,srcmap-runtime,ast,metadata
+
+solc_version=$(solc --version)
+solc_version=$(<<<"$solc_version" grep ^Version:)
+solc_version=${solc_version#* }
+solc_version=${solc_version%%+*}
+major=${solc_version:2:1}
+minor=${solc_version:4:1}
+
+STORAGELAYOUT=
+
+if [[ 5 -lt "$major" ]] && [[ 5 -lt "$minor" ]]; then
+    STORAGELAYOUT=,storage-layout
+fi
+    
+json_opts=--combined-json=abi,bin,bin-runtime,srcmap,srcmap-runtime,ast,metadata$STORAGELAYOUT
 solc --help | grep -q -- --overwrite && opts+=(--overwrite)
 
 remappings=$(dapp remappings)
