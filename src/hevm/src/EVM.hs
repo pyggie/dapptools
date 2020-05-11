@@ -31,7 +31,6 @@ import Data.Bits (bit, testBit, complement)
 import Data.Bits (xor, shiftR, (.&.), (.|.), FiniteBits (..))
 import Data.Text (Text)
 import Data.Word (Word8, Word32)
-import GHC.TypeNats
 import Control.Lens hiding (op, (:<), (|>), (.>))
 import Control.Monad.State.Strict hiding (state)
 
@@ -354,7 +353,7 @@ makeVm o = VM
     , _substate = SubState mempty mempty mempty
     , _isCreate = vmoptCreate o
     , _txReversion = Map.fromList
-      [(vmoptAddress o, initialContract (InitCode (vmoptCode o)))]
+      [(vmoptAddress o, vmoptContract o)]
     }
   , _logs = mempty
   , _traces = Zipper.fromForest []
@@ -1479,7 +1478,7 @@ accessStorage addr slot continue =
             use (cache . fetched . at addr) >>= \case
               Nothing -> mkQuery
               Just cachedContract ->
-                case view (storage . at slot) cachedContract of
+                case readStorage (view storage cachedContract) slot of
                   Nothing -> mkQuery
                   Just x -> continue x
           else do
@@ -1490,10 +1489,10 @@ accessStorage addr slot continue =
         accessStorage addr slot continue
   where
       mkQuery = assign result . Just . VMFailure . Query $
-                  PleaseFetchSlot addr slot
-                    (\x -> do
-                        assign (cache . fetched . ix addr . storage . at slot) (Just x)
-                        assign (env . contracts . ix addr . storage . at slot) (Just x)
+                  PleaseFetchSlot addr (forceLit slot)
+                    (\(litWord -> x) -> do
+                        modifying (cache . fetched . ix addr . storage) (writeStorage slot x)
+                        modifying (env . contracts . ix addr . storage) (writeStorage slot x)
                         assign result Nothing
                         continue x)
 

@@ -8,7 +8,6 @@ module EVM.Solidity
   , solcRuntime
   , JumpType (..)
   , SolcContract (..)
-  , SlotType
   , StorageItem (..)
   , SourceCache (..)
   , SrcMap (..)
