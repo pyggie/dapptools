@@ -19,6 +19,7 @@ import Data.Maybe      (fromMaybe)
 import Data.Semigroup  ((<>))
 import Data.Word       (Word8)
 import Data.SBV hiding (Word)
+import Data.SBV.Internals hiding (Word)
 import qualified Data.ByteString as BS
 
 wordAt :: Int -> ByteString -> W256
@@ -42,14 +43,25 @@ byteStringSliceWithDefaultZeroes offset size bs =
     let bs' = BS.take size (BS.drop offset bs)
     in bs' <> BS.replicate (size - BS.length bs') 0
 
-data Whiff = Dull | FromKeccak ByteString
+
+-- This type can give insight into where some (random looking) number came from
+data Whiff = Dull
+           | FromKeccak ByteString
+           | Var String
+           | InfixBinOp String Whiff Whiff
+           | BinOp String Whiff Whiff
+           | UnOp String Whiff
   deriving Show
 
 w256 :: W256 -> Word
 w256 = C Dull
 
-data Word = C Whiff W256
---data SWord = S Whiff (SWord 256)
+data Word = C Whiff W256 --maybe to remove completely in the future
+
+data SymWord = S Whiff (SWord 256)
+
+sw256 :: SWord 256 -> SymWord
+sw256 = S Dull
 
 wordToByte :: Word -> Word8
 wordToByte (C _ x) = num (x .&. 0xff)
@@ -79,14 +91,6 @@ mulmod x y z = let to512 :: SWord 256 -> SWord 512
                    to512 = sFromIntegral
                in sFromIntegral $ ((to512 x) * (to512 y)) `sMod` (to512 z)
 
-
--- mulmod :: Word -> Word -> Word -> Word
--- mulmod _ _ (C _ (W256 0)) = 0
--- mulmod (C _ x) (C _ y) (C _ z) =
---   w256 $
---     fromWord512
---       ((toWord512 x * toWord512 y) `mod` (toWord512 z))
-
 slt :: SWord 256 -> SWord 256 -> SWord 256
 slt x y =
   ite (sFromIntegral x .< (sFromIntegral y :: (SInt 256))) 1 0
@@ -94,25 +98,6 @@ slt x y =
 sgt :: SWord 256 -> SWord 256 -> SWord 256
 sgt x y =
   ite (sFromIntegral x .> (sFromIntegral y :: (SInt 256))) 1 0
-
--- shr :: SWord 256 -> Word -> SWord 256
--- shr x n =
---   if n > 255 then 0
---   else shiftR x (num n)
-
--- shl :: SWord 256 -> Word -> SWord 256
--- shl x n =
---   if n > 255 then 0
---   else shiftL x (num n)
-
--- sar :: SWord 256 -> Word -> SWord 256
--- sar x (C _ (W256 n)) =
---   let
---     sx = signedWord x
---   in
---     if n > 255 && sx > 0 then 0
---     else if n > 255 && sx < 0 then -1
---     else unsignedWord (shiftR sx (num n))
 
 wordValue :: Word -> W256
 wordValue (C _ x) = x
@@ -140,43 +125,11 @@ writeMemory bs1 (C _ n) (C _ src) (C _ dst) bs0 =
   in
     a <> a' <> c <> b'
 
-
--- writeMemory :: ByteString -> Word -> Word -> Word -> ByteString -> ByteString
--- writeMemory bs1 (C _ n) (C _ src) (C _ dst) bs0 =
---   let
---     (a, b) = BS.splitAt (num dst) bs0
---     a'     = BS.replicate (num dst - BS.length a) 0
---     -- sliceMemory should work for both cases, but we are using 256 bit
---     -- words, whereas ByteString is only defined up to 64 bit. For large n,
---     -- src, dst this will cause problems (often in GeneralStateTests).
---     -- Later we could reimplement ByteString for 256 bit arguments.
---     c      = if src > num (BS.length bs1)
---              then BS.replicate (num n) 0
---              else sliceMemory src n bs1
---     b'     = BS.drop (num (n)) b
---   in
---     a <> a' <> c <> b'
-
 readMemoryWord :: Word -> [SWord 8] -> SWord 256
 readMemoryWord (C _ i) m = fromBytes $ truncpad 32 (drop (num i) m)
-  -- let
-  --   go !a (-1) = a
-  --   go !a !n = go (a + shiftL (num $ readByteOrZero (num i + n) m)
-  --                             (8 * (31 - n))) (n - 1)
-  -- in {-# SCC readMemoryWord #-}
-  --   go (0 :: W256) (31 :: Int)
-
---forceLit
 
 readMemoryWord32 :: Word -> [SWord 8] -> SWord 256
---readMemoryWord32 = error "why is this even here" -- :: Word -> ByteString -> Word
 readMemoryWord32 (C _ i) m = fromBytes $ truncpad 4 (drop (num i) m)
---   let
---     go !a (-1) = a
---     go !a !n = go (a + shiftL (num $ readByteOrZero (num i + n) m)
---                               (8 * (3 - n))) (n - 1)
---   in {-# SCC readMemoryWord32 #-}
---   --   w256 $ go (0 :: W256) (3 :: Int)
 
 setMemoryWord :: Word -> (SWord 256) -> [SWord 8] -> [SWord 8]
 setMemoryWord (C _ i) x m =
@@ -207,7 +160,20 @@ keccakBlob x = C (FromKeccak x) (keccak x)
 
 instance Show Word where
   show (C Dull x) = show x
+  show (C (Var var) x) = var ++ ": " ++ show x
+  show (C (InfixBinOp symbol x y) z) = show x ++ symbol ++ show y  ++ ": " ++ show z
+  show (C (BinOp symbol x y) z) = symbol ++ show x ++ show y  ++ ": " ++ show z
+  show (C (UnOp symbol x) z) = symbol ++ show x ++ ": " ++ show z
   show (C whiff x) = show whiff ++ ": " ++ show x
+
+instance Show SymWord where
+  show (S Dull (SBV (SVal _ (Left c))))  = show c
+  show (S Dull (SBV (SVal _ (Right _)))) = "<symbolic>"
+  show (S (Var var) x) = var ++ ": " ++ show x
+  show (S (InfixBinOp symbol x y) z) = show x ++ symbol ++ show y  ++ ": " ++ show z
+  show (S (BinOp symbol x y) z) = symbol ++ show x ++ show y  ++ ": " ++ show z
+  show (S (UnOp symbol x) z) = symbol ++ show x ++ ": " ++ show z
+  show (S whiff x) = show whiff ++ ": " ++ show x
 
 instance Read Word where
   readsPrec n s =
