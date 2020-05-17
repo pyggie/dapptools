@@ -1,0 +1,18 @@
+FROM node:7.10.0
+
+RUN apt-get update && \
+    apt-get install -y sudo git wget curl make bc && \
+    echo "node ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+USER node
+ENV USER node
+WORKDIR /home/node
+RUN curl https://nixos.org/nix/install | bash
+RUN /nix/var/nix/profiles/per-user/node/profile/bin/nix-env -i jshon
+RUN git clone --recursive https://github.com/dapphub/dapptools.git && \
+    . /home/node/.nix-profile/etc/profile.d/nix.sh && \
+    nix-env -f /home/node/dapptools -iA dapp seth solc hevm ethsign
+
+VOLUME /src
+WORKDIR /src
+CMD [ "dapp", "test"]
